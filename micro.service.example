@@ -1,0 +1,16 @@
+[Unit]
+Description=micro - minimal microblog
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=youruser
+WorkingDirectory=/home/youruser/microblog
+# No token here - app.py reads it from token.txt, generated on first run.
+ExecStart=/home/youruser/microblog/venv/bin/gunicorn -w 2 -b 127.0.0.1:8420 app:app
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
