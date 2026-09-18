@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>micro</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header>
+    <h1>micro</h1>
+  </header>
+
+  <main>
+    {% if not posts %}
+      <p class="empty">nothing here yet.</p>
+    {% endif %}
+
+    {% for post in posts %}
+      <article class="post">
+        <p class="meta">
+          <span class="post-id">#{{ post.id }}</span>
+          <time datetime="{{ post.created_at }}">{{ post.created_at_display }}</time>
+          {% if post.edited %}<span class="edited">(edited {{ post.edited_at_display }})</span>{% endif %}
+        </p>
+        {% if post.text %}
+          <p>{{ post.text }}</p>
+        {% endif %}
+        {% if post.image %}
+          <img src="{{ url_for('uploaded_file', filename=post.image) }}" alt="">
+        {% endif %}
+      </article>
+    {% endfor %}
+  </main>
+
+  <footer>
+    <p>&mdash;</p>
+  </footer>
+</body>
+</html>

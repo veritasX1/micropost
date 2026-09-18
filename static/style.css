@@ -1,0 +1,75 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 2rem 1rem 4rem;
+  background: #f7f5f0;
+  color: #1a1a1a;
+  font-family: "Courier New", Courier, ui-monospace, "IBM Plex Mono", monospace;
+  line-height: 1.5;
+}
+
+header, main, footer {
+  max-width: 42rem;
+  margin: 0 auto;
+}
+
+header h1 {
+  font-size: 1.1rem;
+  font-weight: normal;
+  letter-spacing: 0.15em;
+  text-transform: lowercase;
+  border-bottom: 1px solid #1a1a1a;
+  padding-bottom: 0.5rem;
+  margin-bottom: 2rem;
+}
+
+.post {
+  border-bottom: 1px dashed #b8b3a6;
+  padding: 1rem 0;
+}
+
+.post .meta {
+  display: block;
+  font-size: 0.75rem;
+  color: #6b6b6b;
+  margin: 0 0 0.4rem;
+}
+
+.post .post-id {
+  font-weight: bold;
+  color: #1a1a1a;
+  margin-right: 0.5em;
+}
+
+.post .edited {
+  margin-left: 0.5em;
+  font-style: italic;
+}
+
+.post p {
+  margin: 0 0 0.6rem;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.post img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  filter: grayscale(15%);
+  border: 1px solid #1a1a1a;
+}
+
+.empty {
+  color: #6b6b6b;
+}
+
+footer {
+  margin-top: 3rem;
+  font-size: 0.75rem;
+  color: #6b6b6b;
+  text-align: center;
+}

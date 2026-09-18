@@ -1,0 +1,121 @@
+#!/bin/bash
+# See: micropost help
+set -e
+
+# Resolve post.py next to this script, regardless of where it's installed.
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+POST_PY="$SCRIPT_DIR/post.py"
+
+show_help() {
+  cat <<'EOF'
+micropost - a small command for your self-hosted microblog
+
+  micropost your text without quotes
+      Posts the text. No quotes needed.
+      Example: micropost hello world
+
+  micropost /path/to/image.jpg optional text
+      An image path anywhere in the text is automatically detected
+      and attached as an image (e.g. when you drag a file into the
+      terminal). The rest stays regular text.
+      Example: micropost ~/Pictures/trip.jpg what a day
+      Allowed formats: png, jpg, jpeg, gif, webp (max 15 MB)
+
+  micropost img /path/to/image.jpg [optional text]
+      Same thing, explicitly - in case auto-detection doesn't
+      trigger (e.g. unusual filenames).
+
+  micropost show
+      Lists the 10 most recent entries (ID, date, text).
+
+  micropost del N
+      Deletes post number N.
+      Example: micropost del 13
+      Important: type the ID WITHOUT # (in bash, # starts a
+      comment and would cut off everything after it).
+
+  micropost edit N new text
+      Replaces the text of post number N.
+      Example: micropost edit 24 new text here
+      Same here: ID without #.
+
+  micropost help
+      Shows this help.
+
+One-time setup (see README.md):
+  MICROBLOG_URL and MICROBLOG_TOKEN need to be set, e.g. in ~/.bashrc.
+EOF
+}
+
+# Checks whether $1 is an existing file with an image extension.
+is_image_path() {
+  case "$1" in
+    *.png|*.PNG|*.jpg|*.JPG|*.jpeg|*.JPEG|*.gif|*.GIF|*.webp|*.WEBP)
+      [ -f "$1" ]
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+if [ "$#" -eq 0 ]; then
+  show_help >&2
+  exit 1
+fi
+
+cmd="$1"
+case "$cmd" in
+  help|-h|--help)
+    show_help
+    exit 0
+    ;;
+  show)
+    exec "$POST_PY" --show
+    ;;
+  del|delete)
+    id="${2#\#}"
+    if [ -z "$id" ]; then
+      echo "Usage: micropost del N   (ID without #)" >&2
+      exit 1
+    fi
+    exec "$POST_PY" --delete "$id"
+    ;;
+  edit)
+    id="${2#\#}"
+    shift 2 2>/dev/null || true
+    if [ -z "$id" ] || [ "$#" -eq 0 ]; then
+      echo "Usage: micropost edit N new text   (ID without #)" >&2
+      exit 1
+    fi
+    exec "$POST_PY" --edit "$id" "$*"
+    ;;
+  img|image)
+    path="$2"
+    if [ -z "$path" ]; then
+      echo "Usage: micropost img /path/to/image.jpg [optional text]" >&2
+      exit 1
+    fi
+    shift 2 2>/dev/null || true
+    exec "$POST_PY" "$*" --image "$path"
+    ;;
+  *)
+    # Regular text post - but if an image path is mixed in anywhere
+    # (e.g. dragged into the terminal), detect it automatically and
+    # strip it out of the text.
+    img_path=""
+    words=()
+    for w in "$@"; do
+      if [ -z "$img_path" ] && is_image_path "$w"; then
+        img_path="$w"
+      else
+        words+=("$w")
+      fi
+    done
+    if [ -n "$img_path" ]; then
+      exec "$POST_PY" "${words[*]}" --image "$img_path"
+    else
+      exec "$POST_PY" "$*"
+    fi
+    ;;
+esac
