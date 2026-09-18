@@ -30,6 +30,8 @@ $ micropost show
   personal single-user tool, not a multi-user platform)
 - `micropost` shell wrapper: post without quoting your text, and drop an
   image path anywhere in the command to attach it automatically
+- Post from your phone too — no app needed, just a couple of HTTP
+  Shortcuts (see [Posting from your phone](#posting-from-your-phone-android))
 
 ## Architecture
 
@@ -159,6 +161,50 @@ around.
 
 You can also call `post.py` directly (same flags as documented in its
 docstring) if you don't want the wrapper's conveniences.
+
+## Posting from your phone (Android)
+
+There's no app — instead, use the free, open-source **[HTTP
+Shortcuts](https://play.google.com/store/apps/details?id=ch.rmy.android.http_shortcuts)**
+app (by Roland Meyer) to build two small shortcuts that call the same API
+`post.py` uses. Takes a few minutes, no coding involved.
+
+### Shortcut 1: post an image (from the share sheet)
+
+1. Install HTTP Shortcuts, create a new shortcut.
+2. Method: `POST`, URL: `https://micro.yourdomain.com/api/post`
+3. Header: `Authorization` → `Bearer <your token>`
+4. Request body type: **Parameter list (form-data)** — this is the
+   multipart option that supports file uploads; the plain-text and
+   x-www-form-urlencoded options won't work here.
+5. Add a parameter `text`, type *Text*. For its value, don't type
+   anything directly — tap the variable-insert icon next to the field and
+   create a new variable of type **Text input** (e.g. name it `caption`).
+   This makes the app prompt you for a caption every time the shortcut
+   runs.
+6. Add a parameter `image`, type *Single file*. Pick "Open file picker" as
+   its source — this is just the fallback for when you launch the
+   shortcut directly; when triggered via the share sheet (next step) the
+   shared image is used automatically instead.
+7. In the shortcut's trigger/execution settings, enable **"Use as share
+   target"** for image files (`image/*`).
+8. Optional: under response handling, set it to show nothing or a toast
+   instead of the full JSON response.
+
+Now: share a photo from your gallery → pick this shortcut → type a
+caption → posted.
+
+### Shortcut 2: post text only (from the home screen)
+
+Duplicate shortcut 1 (keeps the URL/header), then:
+
+1. Remove the `image` parameter — keep only `text` (you can reuse the same
+   `caption` variable, or create a separate one).
+2. Disable "use as share target"; instead add the shortcut to your home
+   screen.
+
+Tap the icon, type your text, done — the mobile equivalent of `micropost
+your text without quotes`.
 
 ## API
 
