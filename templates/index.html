@@ -5,10 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>micro</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="alternate" type="application/rss+xml" title="micro" href="{{ url_for('feed') }}">
 </head>
 <body>
   <header>
     <h1>micro</h1>
+    <a class="feed-link" href="{{ url_for('feed') }}">RSS</a>
   </header>
 
   <main>
@@ -17,19 +19,7 @@
     {% endif %}
 
     {% for post in posts %}
-      <article class="post">
-        <p class="meta">
-          <span class="post-id">#{{ post.id }}</span>
-          <time datetime="{{ post.created_at }}">{{ post.created_at_display }}</time>
-          {% if post.edited %}<span class="edited">(edited {{ post.edited_at_display }})</span>{% endif %}
-        </p>
-        {% if post.text %}
-          <p>{{ post.text }}</p>
-        {% endif %}
-        {% if post.image %}
-          <img src="{{ url_for('uploaded_file', filename=post.image) }}" alt="">
-        {% endif %}
-      </article>
+      {% include "_post.html" %}
     {% endfor %}
   </main>
 

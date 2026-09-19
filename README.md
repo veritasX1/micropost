@@ -22,10 +22,15 @@ $ micropost show
 
 - Single chronological feed, plain-text monospace design, no JS
 - Post text and/or an image (png/jpg/jpeg/gif/webp, up to 15 MB)
+- Uploaded images are automatically shrunk to a sane width (default
+  1400px, JPEG quality 85) and re-oriented from EXIF data — so a raw
+  phone/camera photo never ships multiple megabytes to every reader
 - Edit and delete posts from the CLI
 - Posts get a gapless display number (`#1`, `#2`, ...) in creation order;
   deleting a post shifts all later numbers down by one, so there are never
   holes in the sequence
+- Every post has its own permalink page (`/post/<id>`), and the whole feed
+  is subscribable as RSS (`/feed.xml`, auto-discovered by feed readers)
 - Token-based auth (a single, randomly generated bearer token — this is a
   personal single-user tool, not a multi-user platform)
 - `micropost` shell wrapper: post without quoting your text, and drop an
@@ -208,11 +213,14 @@ your text without quotes`.
 
 ## API
 
-All endpoints below (except `/`) require `Authorization: Bearer <token>`.
+All endpoints below except the public ones (`/`, `/post/<id>`, `/feed.xml`,
+`/static/...`) require `Authorization: Bearer <token>`.
 
 | Method | Path                | Description                          |
 |--------|---------------------|---------------------------------------|
 | GET    | `/`                 | Public HTML feed                      |
+| GET    | `/post/<id>`        | Public permalink page for one post    |
+| GET    | `/feed.xml`         | Public RSS 2.0 feed (last 30 posts)   |
 | GET    | `/api/posts`        | JSON list, `?limit=` (default 10)     |
 | POST   | `/api/post`         | Create a post (`text`, optional `image` file) |
 | POST   | `/api/edit/<id>`    | Replace a post's text (`text`)        |

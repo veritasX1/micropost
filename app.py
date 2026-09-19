@@ -3,14 +3,18 @@
 Micro — a very small, self-hosted microblog.
 One feed. Text + optional image. Posting happens from the terminal (see post.py).
 """
+import html
 import os
 import sqlite3
 import secrets
 from datetime import datetime, timezone
+from email.utils import format_datetime
 from pathlib import Path
 
-from flask import Flask, g, render_template, request, jsonify, send_from_directory
+from flask import Flask, g, render_template, request, jsonify, send_from_directory, abort, Response, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
+from PIL import Image, ImageOps
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "posts.db"
@@ -19,6 +23,35 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 ALLOWED_EXT = {"png", "jpg", "jpeg", "gif", "webp"}
 MAX_CONTENT_LENGTH = 15 * 1024 * 1024  # 15 MB
+
+# Uploaded images are shrunk to this width (the feed column is only
+# 42rem/~672px wide, which comfortably covers retina displays too) -
+# otherwise every first-time visitor would end up downloading full-size
+# camera originals for no visual benefit.
+UPLOAD_MAX_WIDTH = 1400
+UPLOAD_JPEG_QUALITY = 85
+
+
+def shrink_image_if_needed(path: Path) -> None:
+    """Shrinks an image in place if it's wider than UPLOAD_MAX_WIDTH.
+    GIFs are skipped (resizing would break the animation)."""
+    if path.suffix.lower() == ".gif":
+        return
+    try:
+        with Image.open(path) as img:
+            img = ImageOps.exif_transpose(img)  # fix phone-photo orientation
+            if img.width <= UPLOAD_MAX_WIDTH:
+                return
+            ratio = UPLOAD_MAX_WIDTH / img.width
+            img = img.resize((UPLOAD_MAX_WIDTH, int(img.height * ratio)))
+            if path.suffix.lower() in (".jpg", ".jpeg"):
+                img = img.convert("RGB")
+                img.save(path, "JPEG", quality=UPLOAD_JPEG_QUALITY, optimize=True)
+            else:
+                img.save(path, optimize=True)
+    except Exception as exc:
+        print(f"[micro] Image shrink failed for {path.name}: {exc}")
+
 
 # The token is generated on first start and stored in token.txt,
 # or can be provided via the MICROBLOG_TOKEN environment variable.
@@ -41,6 +74,10 @@ TOKEN = get_token()
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
+# Behind nginx: makes url_for(..., _external=True) and request.url_root
+# produce https:// and the real hostname instead of http://127.0.0.1
+# (needed for correct links in the RSS feed).
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 
 def get_db():
@@ -152,9 +189,78 @@ def timeline():
     return render_template("index.html", posts=posts)
 
 
+@app.route("/post/<int:post_id>")
+def single_post(post_id):
+    real_id = resolve_real_id(post_id)
+    if real_id is None:
+        abort(404)
+    db = get_db()
+    row = db.execute(
+        f"SELECT * FROM ({NUMBERED_POSTS_SQL}) WHERE num = ?", (post_id,)
+    ).fetchone()
+    return render_template("post.html", post=row_to_dict(row))
+
+
 @app.route("/static/uploads/<path:filename>")
 def uploaded_file(filename):
     return send_from_directory(UPLOAD_DIR, filename)
+
+
+FEED_MAX_ITEMS = 30
+
+
+def xmlesc(s: str | None) -> str:
+    return html.escape(s or "", quote=True)
+
+
+@app.route("/feed.xml")
+def feed():
+    posts = [row_to_dict(r) for r in fetch_posts(limit=FEED_MAX_ITEMS)]
+    site_url = request.url_root.rstrip("/")
+
+    items_xml = []
+    for post in posts:
+        permalink = url_for("single_post", post_id=post["id"], _external=True)
+        if post["text"]:
+            title = post["text"][:70] + ("…" if len(post["text"]) > 70 else "")
+        else:
+            title = f"Image post #{post['id']}"
+
+        description_parts = []
+        if post["text"]:
+            description_parts.append(f"<p>{xmlesc(post['text'])}</p>")
+        enclosure = ""
+        if post["image"]:
+            img_url = url_for("uploaded_file", filename=post["image"], _external=True)
+            description_parts.append(f'<img src="{xmlesc(img_url)}" alt="">')
+            ext = post["image"].rsplit(".", 1)[-1].lower()
+            mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+                    "gif": "image/gif", "webp": "image/webp"}.get(ext, "image/jpeg")
+            enclosure = f'<enclosure url="{xmlesc(img_url)}" type="{mime}" />'
+
+        pub_dt = datetime.fromisoformat(post["created_at"])
+        items_xml.append(f"""
+    <item>
+      <title>{xmlesc(title)}</title>
+      <link>{xmlesc(permalink)}</link>
+      <guid isPermaLink="true">{xmlesc(permalink)}</guid>
+      <pubDate>{format_datetime(pub_dt)}</pubDate>
+      {enclosure}
+      <description><![CDATA[{''.join(description_parts)}]]></description>
+    </item>""")
+
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>micro</title>
+    <link>{xmlesc(site_url)}</link>
+    <description>Micro-blog feed</description>
+    <language>en</language>
+    {''.join(items_xml)}
+  </channel>
+</rss>
+"""
+    return Response(xml, mimetype="application/rss+xml")
 
 
 @app.route("/api/post", methods=["POST"])
@@ -173,6 +279,7 @@ def api_post():
             ext = file.filename.rsplit(".", 1)[1].lower()
             image_name = f"{secrets.token_hex(8)}.{ext}"
             file.save(UPLOAD_DIR / image_name)
+            shrink_image_if_needed(UPLOAD_DIR / image_name)
 
     created_at = datetime.now(timezone.utc).isoformat()
     db = get_db()
