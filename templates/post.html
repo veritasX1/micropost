@@ -3,24 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>micro</title>
+  <title>micro — #{{ post.id }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <link rel="alternate" type="application/rss+xml" title="micro" href="{{ url_for('feed') }}">
 </head>
 <body>
   <header>
-    <h1>micro</h1>
+    <h1><a href="{{ url_for('timeline') }}">micro</a></h1>
     <a class="feed-link" href="{{ url_for('feed') }}">RSS</a>
   </header>
 
   <main>
-    {% if not posts %}
-      <p class="empty">nothing here yet.</p>
-    {% endif %}
-
-    {% for post in posts %}
-      {% include "_post.html" %}
-    {% endfor %}
+    {% include "_post.html" %}
+    <p><a href="{{ url_for('timeline') }}">← all posts</a></p>
   </main>
 
   <footer>

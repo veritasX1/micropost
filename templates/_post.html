@@ -1,0 +1,13 @@
+      <article class="post">
+        <p class="meta">
+          <a class="post-id" href="{{ url_for('single_post', post_id=post.id) }}">#{{ post.id }}</a>
+          <time datetime="{{ post.created_at }}">{{ post.created_at_display }}</time>
+          {% if post.edited %}<span class="edited">(edited {{ post.edited_at_display }})</span>{% endif %}
+        </p>
+        {% if post.text %}
+          <p>{{ post.text }}</p>
+        {% endif %}
+        {% if post.image %}
+          <img src="{{ url_for('uploaded_file', filename=post.image) }}" alt="" loading="lazy" decoding="async">
+        {% endif %}
+      </article>
