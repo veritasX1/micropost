@@ -11,7 +11,12 @@ body {
   line-height: 1.5;
 }
 
-header, main, footer {
+header, footer {
+  max-width: 66rem;
+  margin: 0 auto;
+}
+
+main {
   max-width: 42rem;
   margin: 0 auto;
 }
@@ -80,7 +85,7 @@ header h1 a {
   font-style: italic;
 }
 
-.post p {
+.post .post-text {
   margin: 0 0 0.6rem;
   white-space: pre-wrap;
   word-wrap: break-word;
@@ -103,4 +108,105 @@ footer {
   font-size: 0.75rem;
   color: #6b6b6b;
   text-align: center;
+}
+
+.layout {
+  max-width: 66rem;
+  margin: 0 auto;
+}
+
+.pager {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: 1.5rem;
+  font-size: 0.8rem;
+}
+
+.pager a {
+  color: #1a1a1a;
+}
+
+.pager-status {
+  color: #6b6b6b;
+}
+
+.sidebar {
+  max-width: 42rem;
+  margin: 2.5rem auto 0;
+  border-top: 1px dashed #b8b3a6;
+  padding-top: 1rem;
+}
+
+.sidebar h2 {
+  font-size: 0.8rem;
+  font-weight: normal;
+  letter-spacing: 0.1em;
+  text-transform: lowercase;
+  margin: 0 0 0.5rem;
+}
+
+.sidebar details {
+  margin-bottom: 0.4rem;
+}
+
+.sidebar summary {
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 0.85rem;
+}
+
+.sidebar ul {
+  list-style: none;
+  margin: 0.3rem 0 0.6rem;
+  padding-left: 0.9rem;
+}
+
+.sidebar .day-group {
+  margin: 0.35rem 0;
+}
+
+.sidebar .day-label {
+  font-size: 0.7rem;
+  color: #6b6b6b;
+}
+
+.sidebar .day-group ul {
+  padding-left: 0.9rem;
+}
+
+.sidebar li a {
+  font-size: 0.75rem;
+  color: #1a1a1a;
+  text-decoration: none;
+}
+
+.sidebar li a:hover {
+  text-decoration: underline;
+}
+
+@media (min-width: 980px) {
+  /* 1fr - content - 1fr keeps main perfectly centered regardless of how
+     wide the sidebar ends up in the right-hand column. */
+  .layout {
+    max-width: none;
+    display: grid;
+    grid-template-columns: 1fr 42rem minmax(200px, 1fr);
+    column-gap: 2rem;
+    align-items: start;
+  }
+  main {
+    grid-column: 2;
+    margin: 0;
+  }
+  .sidebar {
+    grid-column: 3;
+    justify-self: start;
+    max-width: 260px;
+    margin: 0;
+    border-top: none;
+    padding-top: 0;
+    position: sticky;
+    top: 1.5rem;
+  }
 }

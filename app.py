@@ -7,6 +7,7 @@ import html
 import os
 import sqlite3
 import secrets
+from collections import OrderedDict
 from datetime import datetime, timezone
 from email.utils import format_datetime
 from pathlib import Path
@@ -165,13 +166,28 @@ NUMBERED_POSTS_SQL = """
 """
 
 
-def fetch_posts(limit: int | None = None) -> list[sqlite3.Row]:
+def fetch_posts(limit: int | None = None, offset: int = 0) -> list[sqlite3.Row]:
     db = get_db()
     query = f"SELECT * FROM ({NUMBERED_POSTS_SQL}) ORDER BY num DESC"
     if limit is not None:
-        query += " LIMIT ?"
-        return db.execute(query, (limit,)).fetchall()
+        query += " LIMIT ? OFFSET ?"
+        return db.execute(query, (limit, offset)).fetchall()
     return db.execute(query).fetchall()
+
+
+def build_archive_index() -> "OrderedDict[str, OrderedDict[str, list]]":
+    """Year -> date -> [(display number, time), ...], newest first - for the
+    sidebar. Only the lightweight metadata, not the full text/image."""
+    db = get_db()
+    rows = db.execute(f"SELECT num, created_at FROM ({NUMBERED_POSTS_SQL}) ORDER BY num DESC").fetchall()
+    years: "OrderedDict[str, OrderedDict[str, list]]" = OrderedDict()
+    for row in rows:
+        dt = datetime.fromisoformat(row["created_at"]).astimezone()
+        year = dt.strftime("%Y")
+        date_label = dt.strftime("%d.%m.%Y")
+        years.setdefault(year, OrderedDict())
+        years[year].setdefault(date_label, []).append((row["num"], dt.strftime("%H:%M")))
+    return years
 
 
 def resolve_real_id(num: int) -> int | None:
@@ -183,10 +199,25 @@ def resolve_real_id(num: int) -> int | None:
     return row["id"] if row else None
 
 
+POSTS_PER_PAGE = 10
+
+
 @app.route("/")
-def timeline():
-    posts = [row_to_dict(r) for r in fetch_posts()]
-    return render_template("index.html", posts=posts)
+@app.route("/page/<int:page>")
+def timeline(page: int = 1):
+    if page < 1:
+        abort(404)
+    db = get_db()
+    total = db.execute("SELECT COUNT(*) AS n FROM posts").fetchone()["n"]
+    total_pages = max(1, (total + POSTS_PER_PAGE - 1) // POSTS_PER_PAGE)
+    if page > total_pages and total > 0:
+        abort(404)
+    offset = (page - 1) * POSTS_PER_PAGE
+    posts = [row_to_dict(r) for r in fetch_posts(limit=POSTS_PER_PAGE, offset=offset)]
+    return render_template(
+        "index.html", posts=posts, page=page, total_pages=total_pages,
+        archive=build_archive_index(),
+    )
 
 
 @app.route("/post/<int:post_id>")
@@ -198,7 +229,7 @@ def single_post(post_id):
     row = db.execute(
         f"SELECT * FROM ({NUMBERED_POSTS_SQL}) WHERE num = ?", (post_id,)
     ).fetchone()
-    return render_template("post.html", post=row_to_dict(row))
+    return render_template("post.html", post=row_to_dict(row), archive=build_archive_index())
 
 
 @app.route("/static/uploads/<path:filename>")

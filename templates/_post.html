@@ -5,7 +5,7 @@
           {% if post.edited %}<span class="edited">(edited {{ post.edited_at_display }})</span>{% endif %}
         </p>
         {% if post.text %}
-          <p>{{ post.text }}</p>
+          <p class="post-text">{{ post.text }}</p>
         {% endif %}
         {% if post.image %}
           <img src="{{ url_for('uploaded_file', filename=post.image) }}" alt="" loading="lazy" decoding="async">

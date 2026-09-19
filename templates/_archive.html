@@ -1,0 +1,20 @@
+<aside class="sidebar">
+  <h2>archive</h2>
+  {% for year, dates in archive.items() %}
+  <details>
+    <summary>{{ year }}</summary>
+    <ul class="day-list">
+      {% for date_label, entries in dates.items() %}
+      <li class="day-group">
+        <span class="day-label">{{ date_label }}</span>
+        <ul>
+          {% for num, time_label in entries %}
+          <li><a href="{{ url_for('single_post', post_id=num) }}">{{ time_label }} — #{{ num }}</a></li>
+          {% endfor %}
+        </ul>
+      </li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endfor %}
+</aside>
