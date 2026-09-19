@@ -13,6 +13,7 @@
     <a class="feed-link" href="{{ url_for('feed') }}">RSS</a>
   </header>
 
+  <div class="layout">
   <main>
     {% if not posts %}
       <p class="empty">nothing here yet.</p>
@@ -21,7 +22,25 @@
     {% for post in posts %}
       {% include "_post.html" %}
     {% endfor %}
+
+    {% if total_pages > 1 %}
+    <nav class="pager">
+      {% if page < total_pages %}
+        <a href="{{ url_for('timeline', page=page + 1) }}">← older</a>
+      {% else %}
+        <span></span>
+      {% endif %}
+      <span class="pager-status">page {{ page }} / {{ total_pages }}</span>
+      {% if page > 1 %}
+        <a href="{{ url_for('timeline', page=page - 1) if page > 2 else url_for('timeline') }}">newer →</a>
+      {% else %}
+        <span></span>
+      {% endif %}
+    </nav>
+    {% endif %}
   </main>
+  {% include "_archive.html" %}
+  </div>
 
   <footer>
     <p>&mdash;</p>

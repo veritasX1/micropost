@@ -31,6 +31,9 @@ $ micropost show
   holes in the sequence
 - Every post has its own permalink page (`/post/<id>`), and the whole feed
   is subscribable as RSS (`/feed.xml`, auto-discovered by feed readers)
+- The timeline is paginated (10 posts per page, `/page/<n>`) so it never
+  turns into one giant scroll, and a collapsible year/date archive sidebar
+  links straight to any older post
 - Token-based auth (a single, randomly generated bearer token — this is a
   personal single-user tool, not a multi-user platform)
 - `micropost` shell wrapper: post without quoting your text, and drop an
@@ -218,7 +221,7 @@ All endpoints below except the public ones (`/`, `/post/<id>`, `/feed.xml`,
 
 | Method | Path                | Description                          |
 |--------|---------------------|---------------------------------------|
-| GET    | `/`                 | Public HTML feed                      |
+| GET    | `/`, `/page/<n>`    | Public HTML feed, 10 posts per page   |
 | GET    | `/post/<id>`        | Public permalink page for one post    |
 | GET    | `/feed.xml`         | Public RSS 2.0 feed (last 30 posts)   |
 | GET    | `/api/posts`        | JSON list, `?limit=` (default 10)     |
@@ -228,6 +231,20 @@ All endpoints below except the public ones (`/`, `/post/<id>`, `/feed.xml`,
 
 `<id>` is the gapless display number shown in the feed / `show` output, not
 an internal database id.
+
+## Ideas for further extensions
+
+Not implemented here (too personal/environment-specific for a generic
+template), but could be a fun hack if it fits your setup:
+
+- **Extra offline backup of post text**: on every new post, also write the
+  plain text to a second, independent medium (an external drive, a removable
+  disk, anything really) as a low-tech extra safety net. Track per-post
+  whether that side-write actually succeeded (e.g. an extra DB column), show
+  a small indicator on posts where it did, and retry any posts that are
+  still missing it the next time a post is made — so swapping in fresh
+  storage automatically catches up on the backlog instead of needing a
+  manual re-run.
 
 ## Security notes
 

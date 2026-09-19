@@ -13,10 +13,13 @@
     <a class="feed-link" href="{{ url_for('feed') }}">RSS</a>
   </header>
 
+  <div class="layout">
   <main>
     {% include "_post.html" %}
     <p><a href="{{ url_for('timeline') }}">← all posts</a></p>
   </main>
+  {% include "_archive.html" %}
+  </div>
 
   <footer>
     <p>&mdash;</p>
