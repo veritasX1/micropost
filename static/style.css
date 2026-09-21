@@ -173,6 +173,28 @@ header h1 a {
   text-decoration: none;
 }
 
+/* Vor/Zurueck innerhalb der Lightbox - springt per Anker direkt zum
+   naechsten/vorherigen .lightbox-Element (umlaufend), ebenfalls ohne JS. */
+.lightbox-nav {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #f7f5f0;
+  font-size: 3rem;
+  line-height: 1;
+  text-decoration: none;
+  padding: 0.5rem 1rem;
+  user-select: none;
+}
+
+.lightbox-prev {
+  left: 0.5rem;
+}
+
+.lightbox-next {
+  right: 0.5rem;
+}
+
 .empty {
   color: #6b6b6b;
 }
