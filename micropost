@@ -15,15 +15,25 @@ micropost - a small command for your self-hosted microblog
       Example: micropost hello world
 
   micropost /path/to/image.jpg optional text
-      An image path anywhere in the text is automatically detected
-      and attached as an image (e.g. when you drag a file into the
-      terminal). The rest stays regular text.
-      Example: micropost ~/Pictures/trip.jpg what a day
-      Allowed formats: png, jpg, jpeg, gif, webp (max 15 MB)
+      One or more image paths anywhere in the text are automatically
+      detected and attached (e.g. when you drag files into the
+      terminal). Two or more images become a click-through gallery.
+      The rest stays regular text.
+      Example: micropost ~/Pictures/a.jpg ~/Pictures/b.jpg what a day
+      Allowed formats: png, jpg, jpeg, gif, webp (max 15 MB each)
 
-  micropost img /path/to/image.jpg [optional text]
-      Same thing, explicitly - in case auto-detection doesn't
+  micropost /path/to/clip.mp4 optional text
+      A video path is likewise auto-detected. Only one video per
+      post; it is not re-encoded, so compress it yourself first if
+      size/load time matters.
+      Allowed formats: mp4, webm, mov, m4v
+
+  micropost img /path/to/image.jpg [/path/to/more.jpg ...] [text]
+      Same as auto-detection, explicitly - in case it doesn't
       trigger (e.g. unusual filenames).
+
+  micropost video /path/to/clip.mp4 [optional text]
+      Same for video, explicitly.
 
   micropost show
       Lists the 10 most recent entries (ID, date, text).
@@ -51,6 +61,18 @@ EOF
 is_image_path() {
   case "$1" in
     *.png|*.PNG|*.jpg|*.JPG|*.jpeg|*.JPEG|*.gif|*.GIF|*.webp|*.WEBP)
+      [ -f "$1" ]
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+# Checks whether $1 is an existing file with a video extension.
+is_video_path() {
+  case "$1" in
+    *.mp4|*.MP4|*.webm|*.WEBM|*.mov|*.MOV|*.m4v|*.M4V)
       [ -f "$1" ]
       ;;
     *)
@@ -91,31 +113,55 @@ case "$cmd" in
     exec "$POST_PY" --edit "$id" "$*"
     ;;
   img|image)
+    shift
+    paths=()
+    while [ "$#" -gt 0 ] && is_image_path "$1"; do
+      paths+=("$1")
+      shift
+    done
+    if [ "${#paths[@]}" -eq 0 ]; then
+      echo "Usage: micropost img /path/to/image.jpg [/path/to/more.jpg ...] [text]" >&2
+      exit 1
+    fi
+    args=()
+    for p in "${paths[@]}"; do
+      args+=(--image "$p")
+    done
+    exec "$POST_PY" "$*" "${args[@]}"
+    ;;
+  video)
     path="$2"
     if [ -z "$path" ]; then
-      echo "Usage: micropost img /path/to/image.jpg [optional text]" >&2
+      echo "Usage: micropost video /path/to/clip.mp4 [optional text]" >&2
       exit 1
     fi
     shift 2 2>/dev/null || true
-    exec "$POST_PY" "$*" --image "$path"
+    exec "$POST_PY" "$*" --video "$path"
     ;;
   *)
-    # Regular text post - but if an image path is mixed in anywhere
-    # (e.g. dragged into the terminal), detect it automatically and
-    # strip it out of the text.
-    img_path=""
+    # Regular text post - but if image/video paths are mixed in anywhere
+    # (e.g. dragged into the terminal), detect them automatically and
+    # strip them out of the text. Multiple images become a gallery;
+    # only the first video found is used.
+    img_paths=()
+    video_path=""
     words=()
     for w in "$@"; do
-      if [ -z "$img_path" ] && is_image_path "$w"; then
-        img_path="$w"
+      if is_image_path "$w"; then
+        img_paths+=("$w")
+      elif [ -z "$video_path" ] && is_video_path "$w"; then
+        video_path="$w"
       else
         words+=("$w")
       fi
     done
-    if [ -n "$img_path" ]; then
-      exec "$POST_PY" "${words[*]}" --image "$img_path"
-    else
-      exec "$POST_PY" "$*"
+    args=()
+    for p in "${img_paths[@]}"; do
+      args+=(--image "$p")
+    done
+    if [ -n "$video_path" ]; then
+      args+=(--video "$video_path")
     fi
+    exec "$POST_PY" "${words[*]}" "${args[@]}"
     ;;
 esac

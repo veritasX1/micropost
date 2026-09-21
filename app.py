@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Micro — a very small, self-hosted microblog.
-One feed. Text + optional image. Posting happens from the terminal (see post.py).
+Micro — ein sehr kleiner, selbst gehosteter Microblog.
+Ein Feed. Text + optionales Bild. Posten per Terminal (siehe post.py).
 """
 import html
 import os
 import sqlite3
 import secrets
+import subprocess
 from collections import OrderedDict
 from datetime import datetime, timezone
 from email.utils import format_datetime
@@ -19,28 +20,33 @@ from PIL import Image, ImageOps
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "posts.db"
+# static/uploads ist ein Symlink auf eine externe Platte (nicht die SD-Karte,
+# auf der das System laeuft) - siehe README fuer den Grund. mkdir hier ruehrt
+# den Symlink nicht an (exist_ok=True greift schon beim Symlink selbst).
 UPLOAD_DIR = BASE_DIR / "static" / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 ALLOWED_EXT = {"png", "jpg", "jpeg", "gif", "webp"}
-MAX_CONTENT_LENGTH = 15 * 1024 * 1024  # 15 MB
+ALLOWED_VIDEO_EXT = {"mp4", "webm", "mov", "m4v"}
+# Bewusst kein Video-Reencoding (kostet CPU auf dem Pi) - wer postet,
+# komprimiert das Video vorher selbst. Nur ein Poster-Frame wird erzeugt.
+MAX_CONTENT_LENGTH = 200 * 1024 * 1024  # 200 MB (mehrere Bilder + evtl. ein Video)
 
-# Uploaded images are shrunk to this width (the feed column is only
-# 42rem/~672px wide, which comfortably covers retina displays too) -
-# otherwise every first-time visitor would end up downloading full-size
-# camera originals for no visual benefit.
+# Hochgeladene Bilder werden auf diese Breite verkleinert (Feed-Spalte ist
+# nur 42rem/~672px breit, das deckt auch Retina-Displays gut ab) - sonst
+# laedt jeder Erstbesucher unnoetig grosse Kamera-Originale mit.
 UPLOAD_MAX_WIDTH = 1400
 UPLOAD_JPEG_QUALITY = 85
 
 
 def shrink_image_if_needed(path: Path) -> None:
-    """Shrinks an image in place if it's wider than UPLOAD_MAX_WIDTH.
-    GIFs are skipped (resizing would break the animation)."""
+    """Verkleinert ein Bild in-place, falls es breiter als UPLOAD_MAX_WIDTH
+    ist. GIFs werden übersprungen (Animation ginge sonst verloren)."""
     if path.suffix.lower() == ".gif":
         return
     try:
         with Image.open(path) as img:
-            img = ImageOps.exif_transpose(img)  # fix phone-photo orientation
+            img = ImageOps.exif_transpose(img)  # Handy-Fotos korrekt drehen
             if img.width <= UPLOAD_MAX_WIDTH:
                 return
             ratio = UPLOAD_MAX_WIDTH / img.width
@@ -51,11 +57,30 @@ def shrink_image_if_needed(path: Path) -> None:
             else:
                 img.save(path, optimize=True)
     except Exception as exc:
-        print(f"[micro] Image shrink failed for {path.name}: {exc}")
+        print(f"[micro] Bild-Verkleinerung fehlgeschlagen fuer {path.name}: {exc}", flush=True)
 
 
-# The token is generated on first start and stored in token.txt,
-# or can be provided via the MICROBLOG_TOKEN environment variable.
+def extract_video_poster(video_path: Path, poster_path: Path) -> bool:
+    """Ein Standbild als Poster fuers <video>-Element, damit beim Laden der
+    Seite kein Frame des Videos selbst geladen werden muss (das Video laedt
+    dank preload="none" ohnehin erst, wenn wirklich auf Play gedrueckt wird).
+    Kein Reencoding des Videos selbst - siehe MAX_CONTENT_LENGTH-Kommentar."""
+    for ss in ("00:00:00.5", "00:00:00"):
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", str(video_path), "-ss", ss, "-vframes", "1",
+                 "-vf", "scale='min(960,iw)':-2", str(poster_path)],
+                check=True, capture_output=True, timeout=30,
+            )
+            if poster_path.exists():
+                return True
+        except Exception as exc:
+            print(f"[micro] Poster-Extraktion (ss={ss}) fehlgeschlagen fuer {video_path.name}: {exc}", flush=True)
+    return False
+
+
+# Token wird beim ersten Start generiert und in token.txt abgelegt,
+# oder per Umgebungsvariable MICROBLOG_TOKEN vorgegeben.
 TOKEN_FILE = BASE_DIR / "token.txt"
 
 
@@ -67,17 +92,71 @@ def get_token() -> str:
         return TOKEN_FILE.read_text().strip()
     token = secrets.token_urlsafe(32)
     TOKEN_FILE.write_text(token)
-    print(f"[micro] New auth token generated and saved to {TOKEN_FILE}.")
+    print(f"[micro] Neues Auth-Token erzeugt und in {TOKEN_FILE} gespeichert.")
     return token
 
 
 TOKEN = get_token()
 
+# Optionale Textsicherung auf Diskette: falls gemountet, wird der reine
+# Text jedes neuen Posts zusaetzlich als .txt dort abgelegt. Rein optional -
+# wenn die Diskette nicht eingelegt/gemountet ist, wird nur eine Warnung
+# geloggt, der Post selbst schlaegt nie deswegen fehl.
+FLOPPY_TEXT_DIR = Path("/media/olaf/floppy/micro-posts")
+
+
+def save_text_to_floppy(post_id: int, text: str, created_at_iso: str) -> bool:
+    """Dateiname: <Datum>_<vierstellige Postnummer>.txt, z.B. 20260919_0020.txt -
+    dadurch sowohl chronologisch als auch alphabetisch gleich sortiert, und
+    auf einen Blick klar, welcher Post/Tag gemeint ist, ohne im Blog
+    nachschlagen zu muessen. Gibt zurueck, ob es wirklich geklappt hat (z.B.
+    False wenn die Diskette voll oder nicht eingelegt ist), damit der
+    Erfolg pro Post in der DB vermerkt werden kann."""
+    if not text:
+        return False
+    try:
+        date_prefix = datetime.fromisoformat(created_at_iso).strftime("%Y%m%d")
+        filename = f"{date_prefix}_{post_id:04d}.txt"
+        FLOPPY_TEXT_DIR.mkdir(parents=True, exist_ok=True)
+        (FLOPPY_TEXT_DIR / filename).write_text(text, encoding="utf-8")
+        return True
+    except OSError as exc:
+        print(f"[micro] Textsicherung auf Diskette fehlgeschlagen fuer #{post_id}: {exc}", flush=True)
+        return False
+
+
+def backfill_pending_floppy_saves(db) -> None:
+    """Versucht erneut, alle Posts auf die Diskette zu schreiben, die noch
+    nicht erfolgreich gesichert sind - entweder weil sie aelter als dieses
+    Feature sind (floppy_saved war noch NULL) oder weil ein frueherer
+    Versuch fehlgeschlagen ist (z.B. Diskette damals voll/nicht eingelegt).
+    Laeuft bei jedem neuen Post mit, damit eine frisch eingelegte Diskette
+    den Rueckstand automatisch aufholt, ohne dass man manuell etwas
+    anstossen muss."""
+    pending = db.execute(
+        "SELECT id, text, created_at FROM posts "
+        "WHERE text != '' AND (floppy_saved IS NULL OR floppy_saved = 0)"
+    ).fetchall()
+    if not pending:
+        return
+    num_by_id = {
+        r["id"]: r["num"]
+        for r in db.execute(f"SELECT id, num FROM ({NUMBERED_POSTS_SQL})").fetchall()
+    }
+    for row in pending:
+        num = num_by_id.get(row["id"])
+        if num is None:
+            continue
+        ok = save_text_to_floppy(num, row["text"], row["created_at"])
+        db.execute("UPDATE posts SET floppy_saved = ? WHERE id = ?", (int(ok), row["id"]))
+    db.commit()
+
+
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
-# Behind nginx: makes url_for(..., _external=True) and request.url_root
-# produce https:// and the real hostname instead of http://127.0.0.1
-# (needed for correct links in the RSS feed).
+# Hinter nginx: sorgt dafuer, dass url_for(..., _external=True) und
+# request.url_root https:// und den echten Hostnamen liefern statt
+# faelschlich http://127.0.0.1 (wichtig fuer den RSS-Feed).
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 
@@ -107,26 +186,50 @@ def init_db():
         )
         """
     )
-    # Migration for existing databases without the edited_at column.
-    # try/except instead of a PRAGMA check, since gunicorn starts multiple
-    # workers in parallel and a read-then-write race could otherwise crash
-    # a worker on first boot.
+    # Migration fuer bestehende Datenbanken ohne edited_at-Spalte. try/except
+    # statt PRAGMA-Check, da gunicorn mehrere Worker parallel startet und ein
+    # Read-then-write-Race sonst zum Absturz eines Workers fuehren kann.
     try:
         db.execute("ALTER TABLE posts ADD COLUMN edited_at TEXT")
     except sqlite3.OperationalError as e:
         if "duplicate column" not in str(e):
             raise
+    try:
+        db.execute("ALTER TABLE posts ADD COLUMN floppy_saved INTEGER")
+    except sqlite3.OperationalError as e:
+        if "duplicate column" not in str(e):
+            raise
+    # Mehrere Bilder bzw. ein Video pro Post. Die alte "image"-Spalte in
+    # posts bleibt fuer historische Posts (nie migriert) - row_to_dict()
+    # baut daraus bei Bedarf eine Ein-Bild-media-Liste nach.
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS post_media (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            post_id INTEGER NOT NULL,
+            kind TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            poster TEXT,
+            position INTEGER NOT NULL,
+            FOREIGN KEY (post_id) REFERENCES posts(id)
+        )
+        """
+    )
     db.commit()
     db.close()
 
 
-# Schema is ensured at import time, not only under "python3 app.py" -
-# otherwise gunicorn (production) would never create the table/migration.
+# Schema wird beim Import sichergestellt, nicht nur bei "python3 app.py" -
+# sonst legt gunicorn (Produktivbetrieb) die Tabelle/Migration nie an.
 init_db()
 
 
 def allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXT
+
+
+def allowed_video_file(filename: str) -> bool:
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_VIDEO_EXT
 
 
 def check_auth() -> bool:
@@ -135,32 +238,57 @@ def check_auth() -> bool:
 
 
 def fmt_dt(iso_str: str | None) -> str | None:
-    """ISO-UTC string -> local display 'DD.MM.YYYY HH:MM'."""
+    """ISO-UTC-String -> lokale Anzeige 'DD.MM.YYYY HH:MM'"""
     if not iso_str:
         return None
     dt = datetime.fromisoformat(iso_str)
     return dt.astimezone().strftime("%d.%m.%Y %H:%M")
 
 
-def row_to_dict(row: sqlite3.Row) -> dict:
-    # The externally visible "id" is the gapless display number (num), not
-    # the internal, never-reused SQLite row id.
+def get_media_map(db, real_ids: list[int]) -> dict[int, list[dict]]:
+    """post_id -> [{"kind","filename","poster"}, ...] in Post-Reihenfolge,
+    fuer eine Reihe von Posts in einer Abfrage statt N+1."""
+    if not real_ids:
+        return {}
+    placeholders = ",".join("?" for _ in real_ids)
+    rows = db.execute(
+        f"SELECT post_id, kind, filename, poster FROM post_media "
+        f"WHERE post_id IN ({placeholders}) ORDER BY post_id, position",
+        real_ids,
+    ).fetchall()
+    media_map: dict[int, list[dict]] = {}
+    for r in rows:
+        media_map.setdefault(r["post_id"], []).append(
+            {"kind": r["kind"], "filename": r["filename"], "poster": r["poster"]}
+        )
+    return media_map
+
+
+def row_to_dict(row: sqlite3.Row, media: list[dict] | None = None) -> dict:
+    # "id" nach aussen ist die fortlaufende Anzeige-Nummer (num), nicht die
+    # interne, nie wiederverwendete SQLite-Zeilen-ID.
+    if media is None:
+        # Alte Posts vor post_media: aus der Legacy-image-Spalte nachbauen.
+        media = [{"kind": "image", "filename": row["image"], "poster": None}] if row["image"] else []
     return {
         "id": row["num"],
         "text": row["text"],
-        "image": row["image"],
+        "media": media,
         "created_at": row["created_at"],
         "created_at_display": fmt_dt(row["created_at"]),
         "edited": bool(row["edited_at"]),
         "edited_at_display": fmt_dt(row["edited_at"]),
+        # None = nicht zutreffend (kein Text oder aelter als dieses Feature),
+        # True/False = Diskettensicherung tatsaechlich erfolgreich/fehlgeschlagen.
+        "floppy_saved": None if row["floppy_saved"] is None else bool(row["floppy_saved"]),
     }
 
 
-# Display number = position in creation order (oldest post = 1). Computed on
-# every query instead of stored, so it stays gapless and shifts down
-# automatically whenever an earlier post is deleted.
+# Fortlaufende Nummer = Position in Erstellungsreihenfolge (aeltester Post = 1).
+# Wird bei jeder Abfrage neu berechnet statt gespeichert, damit sie beim
+# Loeschen eines Posts luecken-frei nachrueckt.
 NUMBERED_POSTS_SQL = """
-    SELECT id, text, image, created_at, edited_at,
+    SELECT id, text, image, created_at, edited_at, floppy_saved,
            ROW_NUMBER() OVER (ORDER BY id ASC) AS num
     FROM posts
 """
@@ -176,8 +304,8 @@ def fetch_posts(limit: int | None = None, offset: int = 0) -> list[sqlite3.Row]:
 
 
 def build_archive_index() -> "OrderedDict[str, OrderedDict[str, list]]":
-    """Year -> date -> [(display number, time), ...], newest first - for the
-    sidebar. Only the lightweight metadata, not the full text/image."""
+    """Jahr -> Datum -> [(Postnummer, Uhrzeit), ...], neueste zuerst - fuer
+    die Seitenleiste. Nur die paar Metadaten, nicht der volle Text/Bild."""
     db = get_db()
     rows = db.execute(f"SELECT num, created_at FROM ({NUMBERED_POSTS_SQL}) ORDER BY num DESC").fetchall()
     years: "OrderedDict[str, OrderedDict[str, list]]" = OrderedDict()
@@ -191,7 +319,7 @@ def build_archive_index() -> "OrderedDict[str, OrderedDict[str, list]]":
 
 
 def resolve_real_id(num: int) -> int | None:
-    """Display number -> internal SQLite row id, for edit/delete."""
+    """Anzeige-Nummer -> interne SQLite-Zeilen-ID, fuer edit/delete."""
     db = get_db()
     row = db.execute(
         f"SELECT id FROM ({NUMBERED_POSTS_SQL}) WHERE num = ?", (num,)
@@ -213,7 +341,9 @@ def timeline(page: int = 1):
     if page > total_pages and total > 0:
         abort(404)
     offset = (page - 1) * POSTS_PER_PAGE
-    posts = [row_to_dict(r) for r in fetch_posts(limit=POSTS_PER_PAGE, offset=offset)]
+    rows = fetch_posts(limit=POSTS_PER_PAGE, offset=offset)
+    media_map = get_media_map(db, [r["id"] for r in rows])
+    posts = [row_to_dict(r, media_map.get(r["id"])) for r in rows]
     return render_template(
         "index.html", posts=posts, page=page, total_pages=total_pages,
         archive=build_archive_index(),
@@ -229,7 +359,10 @@ def single_post(post_id):
     row = db.execute(
         f"SELECT * FROM ({NUMBERED_POSTS_SQL}) WHERE num = ?", (post_id,)
     ).fetchone()
-    return render_template("post.html", post=row_to_dict(row), archive=build_archive_index())
+    media_map = get_media_map(db, [row["id"]])
+    return render_template(
+        "post.html", post=row_to_dict(row, media_map.get(row["id"])), archive=build_archive_index()
+    )
 
 
 @app.route("/static/uploads/<path:filename>")
@@ -246,7 +379,10 @@ def xmlesc(s: str | None) -> str:
 
 @app.route("/feed.xml")
 def feed():
-    posts = [row_to_dict(r) for r in fetch_posts(limit=FEED_MAX_ITEMS)]
+    db = get_db()
+    rows = fetch_posts(limit=FEED_MAX_ITEMS)
+    media_map = get_media_map(db, [r["id"] for r in rows])
+    posts = [row_to_dict(r, media_map.get(r["id"])) for r in rows]
     site_url = request.url_root.rstrip("/")
 
     items_xml = []
@@ -254,20 +390,39 @@ def feed():
         permalink = url_for("single_post", post_id=post["id"], _external=True)
         if post["text"]:
             title = post["text"][:70] + ("…" if len(post["text"]) > 70 else "")
+        elif post["media"] and post["media"][0]["kind"] == "video":
+            title = f"Video-Post #{post['id']}"
         else:
-            title = f"Image post #{post['id']}"
+            title = f"Bild-Post #{post['id']}"
 
         description_parts = []
         if post["text"]:
             description_parts.append(f"<p>{xmlesc(post['text'])}</p>")
         enclosure = ""
-        if post["image"]:
-            img_url = url_for("uploaded_file", filename=post["image"], _external=True)
-            description_parts.append(f'<img src="{xmlesc(img_url)}" alt="">')
-            ext = post["image"].rsplit(".", 1)[-1].lower()
-            mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
-                    "gif": "image/gif", "webp": "image/webp"}.get(ext, "image/jpeg")
-            enclosure = f'<enclosure url="{xmlesc(img_url)}" type="{mime}" />'
+        # RSS <enclosure> erlaubt nur eine Datei - bei mehreren Bildern
+        # zaehlt nur das erste als Enclosure, die anderen nur als <img> im
+        # Beschreibungstext. Video zaehlt als Enclosure statt Bild.
+        media = post["media"]
+        if media:
+            first = media[0]
+            if first["kind"] == "video":
+                video_url = url_for("uploaded_file", filename=first["filename"], _external=True)
+                ext = first["filename"].rsplit(".", 1)[-1].lower()
+                mime = {"mp4": "video/mp4", "webm": "video/webm", "mov": "video/quicktime",
+                        "m4v": "video/x-m4v"}.get(ext, "video/mp4")
+                if first["poster"]:
+                    poster_url = url_for("uploaded_file", filename=first["poster"], _external=True)
+                    description_parts.append(f'<img src="{xmlesc(poster_url)}" alt="">')
+                enclosure = f'<enclosure url="{xmlesc(video_url)}" type="{mime}" />'
+            else:
+                for m in media:
+                    img_url = url_for("uploaded_file", filename=m["filename"], _external=True)
+                    description_parts.append(f'<img src="{xmlesc(img_url)}" alt="">')
+                ext = first["filename"].rsplit(".", 1)[-1].lower()
+                mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+                        "gif": "image/gif", "webp": "image/webp"}.get(ext, "image/jpeg")
+                first_url = url_for("uploaded_file", filename=first["filename"], _external=True)
+                enclosure = f'<enclosure url="{xmlesc(first_url)}" type="{mime}" />'
 
         pub_dt = datetime.fromisoformat(post["created_at"])
         items_xml.append(f"""
@@ -285,8 +440,8 @@ def feed():
   <channel>
     <title>micro</title>
     <link>{xmlesc(site_url)}</link>
-    <description>Micro-blog feed</description>
-    <language>en</language>
+    <description>Micro-Blog Feed</description>
+    <language>de-de</language>
     {''.join(items_xml)}
   </channel>
 </rss>
@@ -300,28 +455,55 @@ def api_post():
         return jsonify({"error": "unauthorized"}), 401
 
     text = (request.form.get("text") or "").strip()
-    if not text and "image" not in request.files:
-        return jsonify({"error": "text or image required"}), 400
-
-    image_name = None
-    if "image" in request.files:
-        file = request.files["image"]
-        if file and file.filename and allowed_file(file.filename):
-            ext = file.filename.rsplit(".", 1)[1].lower()
-            image_name = f"{secrets.token_hex(8)}.{ext}"
-            file.save(UPLOAD_DIR / image_name)
-            shrink_image_if_needed(UPLOAD_DIR / image_name)
+    images = [f for f in request.files.getlist("image") if f and f.filename]
+    video = request.files.get("video")
+    has_video = bool(video and video.filename)
+    if not text and not images and not has_video:
+        return jsonify({"error": "text, image or video required"}), 400
+    if video and has_video and not allowed_video_file(video.filename):
+        return jsonify({"error": "video type not allowed"}), 400
+    for f in images:
+        if not allowed_file(f.filename):
+            return jsonify({"error": f"image type not allowed: {f.filename}"}), 400
 
     created_at = datetime.now(timezone.utc).isoformat()
     db = get_db()
-    db.execute(
-        "INSERT INTO posts (text, image, created_at) VALUES (?, ?, ?)",
-        (text, image_name, created_at),
+    backfill_pending_floppy_saves(db)
+    # image-Spalte bleibt fuer neue Posts leer - Medien landen ausschliesslich
+    # in post_media, dafuer wird die Post-id (real_id) vorher gebraucht.
+    cur = db.execute(
+        "INSERT INTO posts (text, image, created_at) VALUES (?, NULL, ?)",
+        (text, created_at),
     )
+    real_id = cur.lastrowid
+
+    for position, f in enumerate(images):
+        ext = f.filename.rsplit(".", 1)[1].lower()
+        name = f"{secrets.token_hex(8)}.{ext}"
+        f.save(UPLOAD_DIR / name)
+        shrink_image_if_needed(UPLOAD_DIR / name)
+        db.execute(
+            "INSERT INTO post_media (post_id, kind, filename, position) VALUES (?, 'image', ?, ?)",
+            (real_id, name, position),
+        )
+    if has_video:
+        ext = video.filename.rsplit(".", 1)[1].lower()
+        vname = f"{secrets.token_hex(8)}.{ext}"
+        video.save(UPLOAD_DIR / vname)
+        poster_name = f"{secrets.token_hex(8)}.jpg"
+        poster_ok = extract_video_poster(UPLOAD_DIR / vname, UPLOAD_DIR / poster_name)
+        db.execute(
+            "INSERT INTO post_media (post_id, kind, filename, poster, position) VALUES (?, 'video', ?, ?, ?)",
+            (real_id, vname, poster_name if poster_ok else None, len(images)),
+        )
     db.commit()
-    # The row just inserted has the highest internal id, so it also has the
-    # highest display number = current total post count.
+    # Der eben eingefuegte Post hat die hoechste interne ID, also auch die
+    # hoechste Anzeige-Nummer = aktuelle Gesamtzahl der Posts.
     num = db.execute("SELECT COUNT(*) AS n FROM posts").fetchone()["n"]
+    if text:
+        floppy_ok = save_text_to_floppy(num, text, created_at)
+        db.execute("UPDATE posts SET floppy_saved = ? WHERE id = ?", (int(floppy_ok), real_id))
+        db.commit()
     return jsonify(
         {"status": "ok", "id": num, "created_at_display": fmt_dt(created_at)}
     ), 201
@@ -365,6 +547,16 @@ def api_delete(post_id):
         img_path = UPLOAD_DIR / row["image"]
         if img_path.exists():
             img_path.unlink()
+    media_rows = db.execute(
+        "SELECT filename, poster FROM post_media WHERE post_id = ?", (real_id,)
+    ).fetchall()
+    for m in media_rows:
+        for name in (m["filename"], m["poster"]):
+            if name:
+                path = UPLOAD_DIR / name
+                if path.exists():
+                    path.unlink()
+    db.execute("DELETE FROM post_media WHERE post_id = ?", (real_id,))
     db.execute("DELETE FROM posts WHERE id = ?", (real_id,))
     db.commit()
     return jsonify({"status": "deleted"}), 200
@@ -379,7 +571,10 @@ def api_posts():
     except ValueError:
         limit = 10
     limit = max(1, min(limit, 100))
-    return jsonify([row_to_dict(r) for r in fetch_posts(limit=limit)]), 200
+    db = get_db()
+    rows = fetch_posts(limit=limit)
+    media_map = get_media_map(db, [r["id"] for r in rows])
+    return jsonify([row_to_dict(r, media_map.get(r["id"])) for r in rows]), 200
 
 
 if __name__ == "__main__":

@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
 """
-post.py — post, edit, delete and list entries from the terminal.
+post.py — vom Terminal aus auf den Microblog posten, bearbeiten, loeschen, auflisten.
 
-One-time setup:
-    export MICROBLOG_URL="https://micro.yourdomain.com"
-    export MICROBLOG_TOKEN="<token from token.txt on the server>"
+Einrichtung (einmalig):
+    export MICROBLOG_URL="https://micro.deine-domain.de"
+    export MICROBLOG_TOKEN="<token aus token.txt auf dem Server>"
 
-Direct usage:
-    ./post.py "Just text, no image."
-    ./post.py "Text with an image" --image ~/Pictures/photo.jpg
+Nutzung (direkt):
+    ./post.py "Nur Text, kein Bild."
+    ./post.py "Text mit Bild" --image ~/Bilder/foto.jpg
+    ./post.py "Galerie" --image a.jpg --image b.jpg --image c.jpg
+    ./post.py "Kurzes Video" --video ~/Videos/clip.mp4
     ./post.py --show
     ./post.py --delete 13
-    ./post.py --edit 24 "new text"
+    ./post.py --edit 24 "neuer text"
 
-More convenient via the micropost wrapper:
-    micropost hello world
+Komfortabler direkt ueber den micropost-Wrapper:
+    micropost hallo schoene welt
     micropost show
-    micropost del 13
-    micropost edit 24 new text
+    micropost del #13
+    micropost edit #24 neuer text
 """
 import argparse
 import os
@@ -27,21 +29,22 @@ import requests
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Post to / manage your microblog.")
-    parser.add_argument("text", nargs="?", default="", help="Post text (default action: create a post)")
-    parser.add_argument("--image", "-i", help="Path to an image")
-    parser.add_argument("--url", default=os.environ.get("MICROBLOG_URL"), help="Server URL")
-    parser.add_argument("--token", default=os.environ.get("MICROBLOG_TOKEN"), help="Auth token")
-    parser.add_argument("--show", action="store_true", help="List the most recent posts")
-    parser.add_argument("--limit", type=int, default=10, help="Number of posts for --show (default 10)")
-    parser.add_argument("--delete", metavar="ID", help="Delete the post with this ID")
-    parser.add_argument("--edit", metavar="ID", help="Edit the post with this ID (new text in the 'text' argument)")
+    parser = argparse.ArgumentParser(description="Auf den Microblog posten/verwalten.")
+    parser.add_argument("text", nargs="?", default="", help="Der Post-Text (Standardaktion: posten)")
+    parser.add_argument("--image", "-i", action="append", help="Pfad zu einem Bild (mehrfach angebbar fuer eine Galerie)")
+    parser.add_argument("--video", "-v", help="Pfad zu einem kurzen Video (wird nicht neu komprimiert)")
+    parser.add_argument("--url", default=os.environ.get("MICROBLOG_URL"), help="Server-URL")
+    parser.add_argument("--token", default=os.environ.get("MICROBLOG_TOKEN"), help="Auth-Token")
+    parser.add_argument("--show", action="store_true", help="Letzte Posts auflisten")
+    parser.add_argument("--limit", type=int, default=10, help="Anzahl bei --show (Standard 10)")
+    parser.add_argument("--delete", metavar="ID", help="Post mit dieser ID loeschen")
+    parser.add_argument("--edit", metavar="ID", help="Post mit dieser ID bearbeiten (neuer Text im 'text'-Argument)")
     args = parser.parse_args()
 
     if not args.url or not args.token:
         sys.exit(
-            "Error: MICROBLOG_URL and MICROBLOG_TOKEN must be set "
-            "(as environment variables or via --url/--token)."
+            "Fehler: MICROBLOG_URL und MICROBLOG_TOKEN muessen gesetzt sein "
+            "(als Umgebungsvariable oder --url/--token)."
         )
 
     headers = {"Authorization": f"Bearer {args.token}"}
@@ -50,15 +53,23 @@ def main():
     if args.show:
         resp = requests.get(f"{base}/api/posts", headers=headers, params={"limit": args.limit}, timeout=30)
         if resp.status_code != 200:
-            sys.exit(f"Error ({resp.status_code}): {resp.text}")
+            sys.exit(f"Fehler ({resp.status_code}): {resp.text}")
         posts = resp.json()
         if not posts:
-            print("(no posts)")
+            print("(keine Posts)")
             return
         for p in posts:
-            marker = f"  (edited {p['edited_at_display']})" if p.get("edited") else ""
-            img = f"  [image: {p['image']}]" if p.get("image") else ""
-            print(f"#{p['id']}  {p['created_at_display']}{marker}{img}")
+            marker = f"  (bearbeitet {p['edited_at_display']})" if p.get("edited") else ""
+            media = p.get("media") or []
+            if not media:
+                media_note = ""
+            elif len(media) == 1 and media[0]["kind"] == "video":
+                media_note = "  [Video]"
+            elif len(media) == 1:
+                media_note = f"  [Bild: {media[0]['filename']}]"
+            else:
+                media_note = f"  [{len(media)} Bilder]"
+            print(f"#{p['id']}  {p['created_at_display']}{marker}{media_note}")
             if p.get("text"):
                 print(f"    {p['text']}")
         return
@@ -67,47 +78,58 @@ def main():
         post_id = args.delete.lstrip("#")
         resp = requests.post(f"{base}/api/delete/{post_id}", headers=headers, timeout=30)
         if resp.status_code == 200:
-            print(f"#{post_id} deleted.")
+            print(f"#{post_id} geloescht.")
         else:
-            sys.exit(f"Error ({resp.status_code}): {resp.text}")
+            sys.exit(f"Fehler ({resp.status_code}): {resp.text}")
         return
 
     if args.edit:
         post_id = args.edit.lstrip("#")
         if not args.text:
-            sys.exit("Error: please provide the new text (micropost edit N new text).")
+            sys.exit("Fehler: Bitte neuen Text angeben (micropost edit #N neuer text).")
         resp = requests.post(
             f"{base}/api/edit/{post_id}", headers=headers, data={"text": args.text}, timeout=30
         )
         if resp.status_code == 200:
-            print(f"#{post_id} edited.")
+            print(f"#{post_id} bearbeitet.")
         else:
-            sys.exit(f"Error ({resp.status_code}): {resp.text}")
+            sys.exit(f"Fehler ({resp.status_code}): {resp.text}")
         return
 
-    # Default action: create a new post
+    # Standardaktion: neuen Post erstellen
     text = args.text
-    if not text and not args.image:
-        sys.exit("Error: please provide text and/or --image.")
+    if not text and not args.image and not args.video:
+        sys.exit("Fehler: Bitte Text und/oder --image/--video angeben.")
 
     data = {"text": text}
-    files = None
-    if args.image:
-        if not os.path.isfile(args.image):
-            sys.exit(f"Error: file not found: {args.image}")
-        files = {"image": open(args.image, "rb")}
+    files = []
+    opened = []
+    for path in args.image or []:
+        if not os.path.isfile(path):
+            sys.exit(f"Fehler: Datei nicht gefunden: {path}")
+        f = open(path, "rb")
+        opened.append(f)
+        files.append(("image", f))
+    if args.video:
+        if not os.path.isfile(args.video):
+            sys.exit(f"Fehler: Datei nicht gefunden: {args.video}")
+        f = open(args.video, "rb")
+        opened.append(f)
+        files.append(("video", f))
 
     try:
-        resp = requests.post(f"{base}/api/post", headers=headers, data=data, files=files, timeout=30)
+        resp = requests.post(
+            f"{base}/api/post", headers=headers, data=data, files=files or None, timeout=120
+        )
     finally:
-        if files:
-            files["image"].close()
+        for f in opened:
+            f.close()
 
     if resp.status_code == 201:
         info = resp.json()
-        print(f"posted as #{info.get('id')} ({info.get('created_at_display', '')}).")
+        print(f"gepostet als #{info.get('id')} ({info.get('created_at_display', '')}).")
     else:
-        sys.exit(f"Error ({resp.status_code}): {resp.text}")
+        sys.exit(f"Fehler ({resp.status_code}): {resp.text}")
 
 
 if __name__ == "__main__":
