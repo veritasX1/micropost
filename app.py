@@ -455,10 +455,20 @@ def api_post():
         return jsonify({"error": "unauthorized"}), 401
 
     text = (request.form.get("text") or "").strip()
-    images = [f for f in request.files.getlist("image") if f and f.filename]
-    video = request.files.get("video")
+    # "image[]" zusaetzlich zu "image" akzeptieren - manche Clients (z.B.
+    # manche Multi-File-Modi von Android-HTTP-Shortcuts-Apps) haengen bei
+    # mehreren Dateien im selben Feld ein "[]" an den Feldnamen an.
+    images = [
+        f for f in request.files.getlist("image") + request.files.getlist("image[]")
+        if f and f.filename
+    ]
+    video = request.files.get("video") or request.files.get("video[]")
     has_video = bool(video and video.filename)
     if not text and not images and not has_video:
+        if request.files:
+            # Hilft beim Debuggen von Client-Konfigurationen, die einen
+            # unerwarteten Feldnamen schicken - siehe --error-logfile.
+            print(f"[micro] Post ohne text/image/video, aber Dateifelder vorhanden: {list(request.files.keys())}", flush=True)
         return jsonify({"error": "text, image or video required"}), 400
     if video and has_video and not allowed_video_file(video.filename):
         return jsonify({"error": "video type not allowed"}), 400

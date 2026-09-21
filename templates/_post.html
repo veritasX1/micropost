@@ -24,10 +24,15 @@
               </a>
             {% endfor %}
           </div>
+          {% set total = post.media|length %}
           {% for m in post.media %}
+            {% set prev_idx = total if loop.first else loop.index - 1 %}
+            {% set next_idx = 1 if loop.last else loop.index + 1 %}
             <div class="lightbox" id="m{{ post.id }}-{{ loop.index }}">
               <a href="#_" class="lightbox-close" aria-label="schließen">×</a>
+              <a href="#m{{ post.id }}-{{ prev_idx }}" class="lightbox-nav lightbox-prev" aria-label="vorheriges Bild">‹</a>
               <img src="{{ url_for('uploaded_file', filename=m.filename) }}" alt="" loading="lazy">
+              <a href="#m{{ post.id }}-{{ next_idx }}" class="lightbox-nav lightbox-next" aria-label="nächstes Bild">›</a>
             </div>
           {% endfor %}
         {% endif %}
