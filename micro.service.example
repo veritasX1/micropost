@@ -8,7 +8,10 @@ Type=simple
 User=youruser
 WorkingDirectory=/home/youruser/microblog
 # No token here - app.py reads it from token.txt, generated on first run.
-ExecStart=/home/youruser/microblog/venv/bin/gunicorn -w 2 -b 127.0.0.1:8420 app:app
+# --access-logfile/--error-logfile "-" send both to journalctl/stdout -
+# without them gunicorn logs almost nothing, which makes diagnosing a
+# client that's posting "wrong" (missing fields, bad auth, ...) painful.
+ExecStart=/home/youruser/microblog/venv/bin/gunicorn -w 2 -b 127.0.0.1:8420 --access-logfile - --error-logfile - app:app
 Restart=on-failure
 RestartSec=5
 
