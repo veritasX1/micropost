@@ -67,6 +67,7 @@ header h1 a {
   font-size: 0.75rem;
   color: #6b6b6b;
   margin: 0 0 0.4rem;
+  padding-left: 1.2rem;
 }
 
 .post .post-id {
@@ -85,6 +86,10 @@ header h1 a {
   font-style: italic;
 }
 
+.post .floppy-note {
+  font-style: italic;
+}
+
 .post .post-text {
   margin: 0 0 0.6rem;
   white-space: pre-wrap;
@@ -98,6 +103,74 @@ header h1 a {
   margin: 0 auto;
   filter: grayscale(15%);
   border: 1px solid #1a1a1a;
+}
+
+.post video {
+  max-width: 100%;
+  display: block;
+  margin: 0 auto;
+  border: 1px solid #1a1a1a;
+  background: #000;
+}
+
+/* Mehrbild-Post: kleines Klick-Grid statt langer Bilderkette, damit ein
+   Post mit vielen Bildern nicht den ganzen Feed zumuellt. */
+.post .gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 4px;
+}
+
+.post .gallery-item {
+  display: block;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border: 1px solid #1a1a1a;
+}
+
+.post .gallery-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  margin: 0;
+  border: none;
+}
+
+/* Lightbox rein per CSS :target - kein JavaScript noetig. Ein Klick auf ein
+   Thumbnail setzt den URL-Fragment-Anker, das zeigt das passende
+   .lightbox-Element; der Schliessen-Link zeigt auf ein nicht existierendes
+   #_ und macht damit :target wieder leer. */
+.lightbox {
+  display: none;
+}
+
+.lightbox:target {
+  display: flex;
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.92);
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  border: none;
+  filter: none;
+  margin: 0;
+}
+
+.lightbox-close {
+  position: fixed;
+  top: 1rem;
+  right: 1.5rem;
+  color: #f7f5f0;
+  font-size: 2rem;
+  line-height: 1;
+  text-decoration: none;
 }
 
 .empty {
@@ -187,8 +260,9 @@ footer {
 }
 
 @media (min-width: 980px) {
-  /* 1fr - content - 1fr keeps main perfectly centered regardless of how
-     wide the sidebar ends up in the right-hand column. */
+  /* 1fr - Inhalt - 1fr: main sitzt dadurch garantiert exakt mittig
+     (symmetrische Raender), unabhaengig davon, wie breit die Seitenleiste
+     im rechten 1fr-Bereich tatsaechlich ausfaellt. */
   .layout {
     max-width: none;
     display: grid;

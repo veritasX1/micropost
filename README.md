@@ -1,8 +1,9 @@
 # micro
 
-A very small, self-hosted microblog. One feed. Text and/or an image per
-post. No comments, no likes, no threads, no web-based posting UI on
-purpose — you post from the terminal.
+A very small, self-hosted microblog. One feed. Text, images (single or a
+click-through gallery) and/or a short video per post. No comments, no
+likes, no threads, no web-based posting UI on purpose — you post from the
+terminal.
 
 ```
 $ micropost just shipped a thing
@@ -20,8 +21,16 @@ $ micropost show
 
 ## Features
 
-- Single chronological feed, plain-text monospace design, no JS
-- Post text and/or an image (png/jpg/jpeg/gif/webp, up to 15 MB)
+- Single chronological feed, plain-text monospace design, no JS — not even
+  the image gallery lightbox, which is pure CSS (`:target`)
+- Post text, one or more images (png/jpg/jpeg/gif/webp), and/or a short
+  video (mp4/webm/mov/m4v) per post — total request body capped at 200 MB
+- A single image renders full-width; two or more become a click-through
+  gallery grid instead of a long stack of images
+- Video gets a `preload="none"` player with an auto-extracted poster
+  frame, so the page never downloads video bytes until you actually press
+  play. The video itself is not re-encoded — compress it yourself first
+  if file size/load time matters
 - Uploaded images are automatically shrunk to a sane width (default
   1400px, JPEG quality 85) and re-oriented from EXIF data — so a raw
   phone/camera photo never ships multiple megabytes to every reader
@@ -36,8 +45,9 @@ $ micropost show
   links straight to any older post
 - Token-based auth (a single, randomly generated bearer token — this is a
   personal single-user tool, not a multi-user platform)
-- `micropost` shell wrapper: post without quoting your text, and drop an
-  image path anywhere in the command to attach it automatically
+- `micropost` shell wrapper: post without quoting your text, and drop one
+  or more image paths (or a video path) anywhere in the command to attach
+  them automatically
 - Post from your phone too — no app needed, just a couple of HTTP
   Shortcuts (see [Posting from your phone](#posting-from-your-phone-android))
 
@@ -100,9 +110,10 @@ server {
     ssl_certificate     /etc/letsencrypt/live/micro.yourdomain.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/micro.yourdomain.com/privkey.pem;
 
-    # Match (or raise) the 15 MB limit in app.py, or image uploads will be
-    # rejected by nginx before they ever reach the app.
-    client_max_body_size 20m;
+    # Match (or raise) the MAX_CONTENT_LENGTH in app.py (200 MB by
+    # default), or uploads will be rejected by nginx before they ever
+    # reach the app.
+    client_max_body_size 200m;
 
     location / {
         proxy_pass http://127.0.0.1:8420;
@@ -142,11 +153,19 @@ micropost your text without quotes
     Post the text as-is. No quotes needed.
 
 micropost /path/to/image.jpg optional text
-    An image path anywhere among the words is detected automatically
-    and attached (handy when you drag a file into the terminal).
+    One or more image paths anywhere among the words are detected
+    automatically and attached (handy when you drag files into the
+    terminal). Two or more images become a click-through gallery.
 
-micropost img /path/to/image.jpg [optional text]
-    Same thing, explicitly.
+micropost /path/to/clip.mp4 optional text
+    A video path is likewise auto-detected and attached (not
+    re-encoded — compress it yourself first if size matters).
+
+micropost img /path/to/image.jpg [/path/to/more.jpg ...] [text]
+    Same as auto-detection, explicitly.
+
+micropost video /path/to/clip.mp4 [optional text]
+    Same for video, explicitly.
 
 micropost show
     List the 10 most recent posts.
@@ -225,7 +244,7 @@ All endpoints below except the public ones (`/`, `/post/<id>`, `/feed.xml`,
 | GET    | `/post/<id>`        | Public permalink page for one post    |
 | GET    | `/feed.xml`         | Public RSS 2.0 feed (last 30 posts)   |
 | GET    | `/api/posts`        | JSON list, `?limit=` (default 10)     |
-| POST   | `/api/post`         | Create a post (`text`, optional `image` file) |
+| POST   | `/api/post`         | Create a post (`text`, optional repeated `image` files, optional `video` file) |
 | POST   | `/api/edit/<id>`    | Replace a post's text (`text`)        |
 | POST   | `/api/delete/<id>`  | Delete a post                         |
 
