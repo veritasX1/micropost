@@ -196,7 +196,7 @@ Shortcuts](https://play.google.com/store/apps/details?id=ch.rmy.android.http_sho
 app (by Roland Meyer) to build two small shortcuts that call the same API
 `post.py` uses. Takes a few minutes, no coding involved.
 
-### Shortcut 1: post an image (from the share sheet)
+### Shortcut 1: post images (from the share sheet, one or a gallery)
 
 1. Install HTTP Shortcuts, create a new shortcut.
 2. Method: `POST`, URL: `https://micro.yourdomain.com/api/post`
@@ -209,17 +209,37 @@ app (by Roland Meyer) to build two small shortcuts that call the same API
    create a new variable of type **Text input** (e.g. name it `caption`).
    This makes the app prompt you for a caption every time the shortcut
    runs.
-6. Add a parameter `image`, type *Single file*. Pick "Open file picker" as
-   its source — this is just the fallback for when you launch the
-   shortcut directly; when triggered via the share sheet (next step) the
-   shared image is used automatically instead.
+6. Add a parameter `image`, type **Multiple files** (not *Single file* —
+   that variant silently keeps only one image when you share several at
+   once from your gallery, the rest are dropped before the request is
+   even sent). Pick "Open file picker" as its source — that's just the
+   fallback for when you launch the shortcut directly; when triggered via
+   the share sheet (next step) the shared image(s) are used automatically
+   instead.
 7. In the shortcut's trigger/execution settings, enable **"Use as share
-   target"** for image files (`image/*`).
+   target"** for image files (`image/*`), and make sure multi-select
+   sharing is allowed there too (some app versions have a separate
+   "allow multiple items" toggle next to the share-target option — turn
+   it on).
 8. Optional: under response handling, set it to show nothing or a toast
    instead of the full JSON response.
 
-Now: share a photo from your gallery → pick this shortcut → type a
-caption → posted.
+Now: select one or several photos in your gallery → share → pick this
+shortcut → type a caption → posted (two or more images automatically
+become a click-through gallery).
+
+### Shortcut 1b: post a video (from the share sheet)
+
+Duplicate shortcut 1, then:
+
+1. Rename the `image` parameter to `video`, type **Single file** (only one
+   video per post is supported).
+2. Enable "Use as share target" for video files (`video/*`) instead of
+   images.
+
+Share a short video clip → pick this shortcut → posted. It is not
+re-encoded server-side, so keep an eye on the file size/format you share
+if load time matters — see [Features](#features).
 
 ### Shortcut 2: post text only (from the home screen)
 
