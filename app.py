@@ -5,6 +5,7 @@ Ein Feed. Text + optionales Bild. Posten per Terminal (siehe post.py).
 """
 import html
 import os
+import re
 import shutil
 import sqlite3
 import secrets
@@ -15,6 +16,7 @@ from email.utils import format_datetime
 from pathlib import Path
 
 from flask import Flask, g, render_template, request, jsonify, send_from_directory, abort, Response, url_for
+from markupsafe import Markup, escape
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 from PIL import Image, ImageOps
@@ -122,6 +124,20 @@ def compute_headline(text: str, media: list[dict] | None) -> str:
     if media:
         return "Image post"
     return ""
+
+
+# *word* -> highlighted in red, a nod to the black/red two-color ribbon on
+# old typewriters. (?<!\s)/(?!\s) keeps whitespace right after/before an
+# asterisk from counting, which also rules out most "2 * 3" math. Escaping
+# happens first, the rest is plain markup - no post text can inject its own
+# HTML this way.
+EMPHASIS_RE = re.compile(r"\*(?!\s)([^*\n]+?)(?<!\s)\*")
+
+
+def render_post_text(text: str) -> Markup:
+    escaped = str(escape(text or ""))
+    highlighted = EMPHASIS_RE.sub(r'<span class="emph">\1</span>', escaped)
+    return Markup(highlighted)
 
 
 # Optionale Textsicherung auf einem zweiten Medium (urspruenglich fuer ein
@@ -348,6 +364,7 @@ def row_to_dict(row: sqlite3.Row, media: list[dict] | None = None) -> dict:
     return {
         "id": row["num"],
         "text": row["text"],
+        "text_html": render_post_text(row["text"]),
         "headline": compute_headline(row["text"], media),
         "media": media,
         "created_at": row["created_at"],

@@ -45,6 +45,11 @@ shorter, more deliberate cutoff instead of stretching edge to edge:
 
 ![The feed on a narrow, phone-width viewport](screenshots/feed-mobile.png)
 
+**Wrap a word in `*asterisks*` to highlight it in red** — a nod to the
+black/red two-color ribbon on old typewriters:
+
+![A post with one word highlighted in red via asterisk syntax](screenshots/emphasis.png)
+
 **Optional secondary backup usage gauge** (see [Optional: a second, offline
 text backup](#optional-a-second-offline-text-backup) — off by default, this only appears once you opt in):
 
@@ -70,6 +75,10 @@ text backup](#optional-a-second-offline-text-backup) — off by default, this on
   cut to a sane length at a word boundary) — no model, no extra RAM/CPU,
   nothing to configure. A text-less image/video post gets a generic
   "Image post" / "Video post" headline instead
+- Wrap a word (or phrase) in `*asterisks*` to highlight it in a muted red
+  — the two-color ribbon on old typewriters, in text form
+- Justified post text with automatic hyphenation, so narrow (phone-width)
+  columns don't end up with a ragged, gappy right edge
 - Edit and delete posts from the CLI
 - Posts get a gapless display number (`#1`, `#2`, ...) in creation order;
   deleting a post shifts all later numbers down by one, so there are never
