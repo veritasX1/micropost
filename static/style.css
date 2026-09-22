@@ -189,6 +189,10 @@ header h1 a {
   margin: 0 0 0.6rem;
   white-space: pre-wrap;
   word-wrap: break-word;
+  text-align: justify;
+  text-justify: inter-word;
+  -webkit-hyphens: auto;
+  hyphens: auto;
 }
 
 .post img {
