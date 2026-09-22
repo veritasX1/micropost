@@ -19,6 +19,37 @@ $ micropost show
     just shipped a thing
 ```
 
+## Screenshots
+
+All content below is placeholder (Lorem Ipsum text, generated test-pattern
+images/video) — just to show the shape of the thing.
+
+**Feed with a video and an image post.** Every post gets a short,
+auto-generated headline next to its number — no AI, just a plain string
+heuristic (see [Features](#features) below).
+
+![Desktop feed with a video post and an image post](screenshots/feed-desktop.png)
+
+**Multiple images in one post become a click-through gallery grid**
+instead of a long stack of images (pure CSS, no JS):
+
+![A post with a three-image gallery grid](screenshots/gallery.png)
+
+**The archive sidebar** lists every post with its headline, kept to one
+line no matter how long the post text is:
+
+![Archive sidebar listing posts with their headlines](screenshots/archive-headlines.png)
+
+**On a phone**, the feed narrows to a single column and headlines get a
+shorter, more deliberate cutoff instead of stretching edge to edge:
+
+![The feed on a narrow, phone-width viewport](screenshots/feed-mobile.png)
+
+**Optional secondary backup usage gauge** (see [Optional: a second, offline
+text backup](#optional-a-second-offline-text-backup) — off by default, this only appears once you opt in):
+
+![A small usage gauge in the header showing backup medium usage](screenshots/floppy-gauge.png)
+
 ## Features
 
 - Single chronological feed, plain-text monospace design, no JS — not even
@@ -34,6 +65,11 @@ $ micropost show
 - Uploaded images are automatically shrunk to a sane width (default
   1400px, JPEG quality 85) and re-oriented from EXIF data — so a raw
   phone/camera photo never ships multiple megabytes to every reader
+- **Auto headlines**, no AI: each post gets a short headline next to its
+  number, generated with a plain string heuristic (first line of the text,
+  cut to a sane length at a word boundary) — no model, no extra RAM/CPU,
+  nothing to configure. A text-less image/video post gets a generic
+  "Image post" / "Video post" headline instead
 - Edit and delete posts from the CLI
 - Posts get a gapless display number (`#1`, `#2`, ...) in creation order;
   deleting a post shifts all later numbers down by one, so there are never
@@ -50,6 +86,10 @@ $ micropost show
   them automatically
 - Post from your phone too — no app needed, just a couple of HTTP
   Shortcuts (see [Posting from your phone](#posting-from-your-phone-android))
+- **Optional second, offline text backup** (e.g. onto a USB drive, an old
+  removable disk, anything with a filesystem): off by default, opt in with
+  one environment variable — see [Optional: a second, offline text
+  backup](#optional-a-second-offline-text-backup)
 
 ## Architecture
 
@@ -271,19 +311,37 @@ All endpoints below except the public ones (`/`, `/post/<id>`, `/feed.xml`,
 `<id>` is the gapless display number shown in the feed / `show` output, not
 an internal database id.
 
-## Ideas for further extensions
+## Optional: a second, offline text backup
 
-Not implemented here (too personal/environment-specific for a generic
-template), but could be a fun hack if it fits your setup:
+A low-tech extra safety net: on every new post, also write the plain text
+(or a placeholder for a media-only post) to a second, independent
+filesystem path — an external drive, a USB stick, an old removable disk,
+anything really. This is off by default — most people don't have (or want)
+a dedicated backup medium wired up, and it shouldn't write anywhere on disk
+without being asked to.
 
-- **Extra offline backup of post text**: on every new post, also write the
-  plain text to a second, independent medium (an external drive, a removable
-  disk, anything really) as a low-tech extra safety net. Track per-post
-  whether that side-write actually succeeded (e.g. an extra DB column), show
-  a small indicator on posts where it did, and retry any posts that are
-  still missing it the next time a post is made — so swapping in fresh
-  storage automatically catches up on the backlog instead of needing a
-  manual re-run.
+Turn it on by setting one environment variable to a directory path before
+starting the app (e.g. in `micro.service`, `Environment=MICRO_FLOPPY_DIR=/media/you/backup/micro-posts`):
+
+```bash
+export MICRO_FLOPPY_DIR=/media/you/backup/micro-posts
+```
+
+Each post becomes a `<date>_<number>.txt` file there (e.g.
+`20260919_0020.txt`), with a small header:
+
+```
+Post #20 First line of the post, used as its headline
+----------------------------------------
+Full text of the post goes here.
+```
+
+If the path isn't reachable when a post is made (medium not plugged in,
+full, etc.), the post itself never fails because of it — it's just tried
+again automatically on the next post, so plugging the medium back in
+catches up the backlog on its own. A small usage gauge then also appears
+in the header (see the [screenshot](#screenshots) above) — it disappears
+again on its own if the path becomes unreachable.
 
 ## Security notes
 

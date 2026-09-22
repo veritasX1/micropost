@@ -1,6 +1,9 @@
       <article class="post">
         <p class="meta">
-          <a class="post-id" href="{{ url_for('single_post', post_id=post.id) }}">#{{ post.id }}</a><br>
+          <span class="post-header-row">
+            <a class="post-id" href="{{ url_for('single_post', post_id=post.id) }}">#{{ post.id }}</a>
+            {% if post.headline %}<span class="post-headline-sep">-</span><span class="post-headline">{{ post.headline }}</span>{% endif %}
+          </span>
           <time datetime="{{ post.created_at }}">{{ post.created_at_display }}</time>
           {% if post.edited %}<span class="edited">(bearbeitet {{ post.edited_at_display }})</span>{% endif %}
           {% if post.floppy_saved %}<br><span class="floppy-note">auf Diskette gesichert</span>{% endif %}

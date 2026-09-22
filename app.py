@@ -5,6 +5,7 @@ Ein Feed. Text + optionales Bild. Posten per Terminal (siehe post.py).
 """
 import html
 import os
+import shutil
 import sqlite3
 import secrets
 import subprocess
@@ -98,44 +99,109 @@ def get_token() -> str:
 
 TOKEN = get_token()
 
-# Optionale Textsicherung auf Diskette: falls gemountet, wird der reine
-# Text jedes neuen Posts zusaetzlich als .txt dort abgelegt. Rein optional -
-# wenn die Diskette nicht eingelegt/gemountet ist, wird nur eine Warnung
-# geloggt, der Post selbst schlaegt nie deswegen fehl.
-FLOPPY_TEXT_DIR = Path("/media/olaf/floppy/micro-posts")
+# Ueberschrift ohne KI: einfache Textheuristik statt eines Modells, damit
+# das keine zusaetzliche RAM/CPU-Last verursacht. Erste Zeile des Texts, an
+# einer Wortgrenze auf HEADLINE_MAX_LEN Zeichen gekuerzt, damit sie nie
+# umbricht. Wird live berechnet statt gespeichert, bleibt also auch nach
+# einem Edit automatisch aktuell.
+HEADLINE_MAX_LEN = 60
 
 
-def save_text_to_floppy(post_id: int, text: str, created_at_iso: str) -> bool:
+def compute_headline(text: str, media: list[dict] | None) -> str:
+    text = (text or "").strip()
+    if text:
+        first_line = text.splitlines()[0].strip()
+        if len(first_line) > HEADLINE_MAX_LEN:
+            truncated = first_line[:HEADLINE_MAX_LEN]
+            if " " in truncated:
+                truncated = truncated.rsplit(" ", 1)[0]
+            first_line = truncated.rstrip() + "…"
+        return first_line
+    if any(m["kind"] == "video" for m in media or []):
+        return "Video post"
+    if media:
+        return "Image post"
+    return ""
+
+
+# Optionale Textsicherung auf einem zweiten Medium (urspruenglich fuer ein
+# echtes USB-Diskettenlaufwerk gebaut, funktioniert aber mit jedem
+# beschreibbaren Pfad - eine externe Platte, ein USB-Stick, ein Netzlaufwerk).
+# Aus, solange MICRO_FLOPPY_DIR nicht gesetzt ist - das ist ein
+# Nice-to-have fuer ein Zweitbackup, kein Kernfeature, und soll nicht
+# ungefragt irgendwo im Dateisystem herumschreiben.
+FLOPPY_DIR = Path(os.environ["MICRO_FLOPPY_DIR"]).expanduser() if os.environ.get("MICRO_FLOPPY_DIR") else None
+
+
+def human_size(num_bytes: float) -> str:
+    """z.B. 119 -> '119B', 1234 -> '1.2K', 1500000 -> '1.4M' - angelehnt an
+    die Ausgabe von `df -h` fuer die Fuellstandsanzeige im Header."""
+    size = float(num_bytes)
+    for unit in ("B", "K", "M", "G"):
+        if size < 1024 or unit == "G":
+            if unit == "B":
+                return f"{size:.0f}{unit}"
+            return f"{size:.1f}{unit}" if size < 100 else f"{size:.0f}{unit}"
+        size /= 1024
+    return f"{size:.0f}G"
+
+
+def get_floppy_usage() -> dict | None:
+    """Belegung des Backup-Mediums fuer die Fuellstandsanzeige im Header.
+    None wenn das Feature aus ist oder der Pfad gerade nicht erreichbar ist
+    (z.B. Wechseldatentraeger nicht eingelegt) - die Anzeige blendet sich
+    dann im Template einfach aus."""
+    if FLOPPY_DIR is None:
+        return None
+    try:
+        usage = shutil.disk_usage(FLOPPY_DIR)
+    except OSError:
+        return None
+    if usage.total == 0:
+        return None
+    return {
+        "percent": round(usage.used / usage.total * 100),
+        "used_display": human_size(usage.used),
+        "total_display": human_size(usage.total),
+    }
+
+
+def save_text_to_floppy(post_id: int, text: str, created_at_iso: str, media: list[dict] | None = None) -> bool:
     """Dateiname: <Datum>_<vierstellige Postnummer>.txt, z.B. 20260919_0020.txt -
     dadurch sowohl chronologisch als auch alphabetisch gleich sortiert, und
     auf einen Blick klar, welcher Post/Tag gemeint ist, ohne im Blog
     nachschlagen zu muessen. Gibt zurueck, ob es wirklich geklappt hat (z.B.
-    False wenn die Diskette voll oder nicht eingelegt ist), damit der
-    Erfolg pro Post in der DB vermerkt werden kann."""
-    if not text:
+    False wenn das Medium voll oder nicht erreichbar ist), damit der Erfolg
+    pro Post in der DB vermerkt werden kann. No-op (False), wenn das
+    Feature per MICRO_FLOPPY_DIR gar nicht aktiviert ist."""
+    if FLOPPY_DIR is None:
         return False
+    headline = compute_headline(text, media)
+    body = text.strip() if text else "Post contains a media file only, no additional text."
+    content = f"Post #{post_id} {headline}\n{'-' * 40}\n{body}"
     try:
         date_prefix = datetime.fromisoformat(created_at_iso).strftime("%Y%m%d")
         filename = f"{date_prefix}_{post_id:04d}.txt"
-        FLOPPY_TEXT_DIR.mkdir(parents=True, exist_ok=True)
-        (FLOPPY_TEXT_DIR / filename).write_text(text, encoding="utf-8")
+        FLOPPY_DIR.mkdir(parents=True, exist_ok=True)
+        (FLOPPY_DIR / filename).write_text(content, encoding="utf-8")
         return True
     except OSError as exc:
-        print(f"[micro] Textsicherung auf Diskette fehlgeschlagen fuer #{post_id}: {exc}", flush=True)
+        print(f"[micro] Textsicherung fehlgeschlagen fuer #{post_id}: {exc}", flush=True)
         return False
 
 
 def backfill_pending_floppy_saves(db) -> None:
-    """Versucht erneut, alle Posts auf die Diskette zu schreiben, die noch
-    nicht erfolgreich gesichert sind - entweder weil sie aelter als dieses
-    Feature sind (floppy_saved war noch NULL) oder weil ein frueherer
-    Versuch fehlgeschlagen ist (z.B. Diskette damals voll/nicht eingelegt).
-    Laeuft bei jedem neuen Post mit, damit eine frisch eingelegte Diskette
-    den Rueckstand automatisch aufholt, ohne dass man manuell etwas
-    anstossen muss."""
+    """Versucht erneut, alle Posts auf das Backup-Medium zu schreiben, die
+    noch nicht erfolgreich gesichert sind - entweder weil sie aelter als
+    dieses Feature sind (floppy_saved war noch NULL) oder weil ein
+    frueherer Versuch fehlgeschlagen ist (z.B. Medium damals voll/nicht
+    eingelegt). Laeuft bei jedem neuen Post mit, damit ein frisch
+    eingelegtes Medium den Rueckstand automatisch aufholt."""
+    if FLOPPY_DIR is None:
+        return
     pending = db.execute(
         "SELECT id, text, created_at FROM posts "
-        "WHERE text != '' AND (floppy_saved IS NULL OR floppy_saved = 0)"
+        "WHERE floppy_saved IS NULL OR floppy_saved = 0"
     ).fetchall()
     if not pending:
         return
@@ -143,11 +209,12 @@ def backfill_pending_floppy_saves(db) -> None:
         r["id"]: r["num"]
         for r in db.execute(f"SELECT id, num FROM ({NUMBERED_POSTS_SQL})").fetchall()
     }
+    media_map = get_media_map(db, [row["id"] for row in pending])
     for row in pending:
         num = num_by_id.get(row["id"])
         if num is None:
             continue
-        ok = save_text_to_floppy(num, row["text"], row["created_at"])
+        ok = save_text_to_floppy(num, row["text"], row["created_at"], media_map.get(row["id"]))
         db.execute("UPDATE posts SET floppy_saved = ? WHERE id = ?", (int(ok), row["id"]))
     db.commit()
 
@@ -158,6 +225,14 @@ app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 # request.url_root https:// und den echten Hostnamen liefern statt
 # faelschlich http://127.0.0.1 (wichtig fuer den RSS-Feed).
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+
+@app.context_processor
+def inject_floppy_usage():
+    # In jedem Template ohne extra Zutun als `floppy` verfuegbar. Liefert
+    # None (Anzeige blendet sich dann aus), solange MICRO_FLOPPY_DIR nicht
+    # gesetzt ist - das Feature ist also standardmaessig unsichtbar.
+    return {"floppy": get_floppy_usage()}
 
 
 def get_db():
@@ -273,6 +348,7 @@ def row_to_dict(row: sqlite3.Row, media: list[dict] | None = None) -> dict:
     return {
         "id": row["num"],
         "text": row["text"],
+        "headline": compute_headline(row["text"], media),
         "media": media,
         "created_at": row["created_at"],
         "created_at_display": fmt_dt(row["created_at"]),
@@ -304,17 +380,21 @@ def fetch_posts(limit: int | None = None, offset: int = 0) -> list[sqlite3.Row]:
 
 
 def build_archive_index() -> "OrderedDict[str, OrderedDict[str, list]]":
-    """Jahr -> Datum -> [(Postnummer, Uhrzeit), ...], neueste zuerst - fuer
-    die Seitenleiste. Nur die paar Metadaten, nicht der volle Text/Bild."""
+    """Jahr -> Datum -> [(Postnummer, Uhrzeit, Ueberschrift), ...], neueste
+    zuerst - fuer die Seitenleiste. Nur die paar Metadaten, nicht der volle
+    Text/Bild (die Ueberschrift wird aus Text + Medienart live berechnet,
+    siehe compute_headline)."""
     db = get_db()
-    rows = db.execute(f"SELECT num, created_at FROM ({NUMBERED_POSTS_SQL}) ORDER BY num DESC").fetchall()
+    rows = db.execute(f"SELECT num, created_at, text, id FROM ({NUMBERED_POSTS_SQL}) ORDER BY num DESC").fetchall()
+    media_map = get_media_map(db, [row["id"] for row in rows])
     years: "OrderedDict[str, OrderedDict[str, list]]" = OrderedDict()
     for row in rows:
         dt = datetime.fromisoformat(row["created_at"]).astimezone()
         year = dt.strftime("%Y")
         date_label = dt.strftime("%d.%m.%Y")
+        headline = compute_headline(row["text"], media_map.get(row["id"]))
         years.setdefault(year, OrderedDict())
-        years[year].setdefault(date_label, []).append((row["num"], dt.strftime("%H:%M")))
+        years[year].setdefault(date_label, []).append((row["num"], dt.strftime("%H:%M"), headline))
     return years
 
 
@@ -510,10 +590,12 @@ def api_post():
     # Der eben eingefuegte Post hat die hoechste interne ID, also auch die
     # hoechste Anzeige-Nummer = aktuelle Gesamtzahl der Posts.
     num = db.execute("SELECT COUNT(*) AS n FROM posts").fetchone()["n"]
-    if text:
-        floppy_ok = save_text_to_floppy(num, text, created_at)
-        db.execute("UPDATE posts SET floppy_saved = ? WHERE id = ?", (int(floppy_ok), real_id))
-        db.commit()
+    media_for_floppy = [{"kind": "image"} for _ in images] + (
+        [{"kind": "video"}] if has_video else []
+    )
+    floppy_ok = save_text_to_floppy(num, text, created_at, media_for_floppy)
+    db.execute("UPDATE posts SET floppy_saved = ? WHERE id = ?", (int(floppy_ok), real_id))
+    db.commit()
     return jsonify(
         {"status": "ok", "id": num, "created_at_display": fmt_dt(created_at)}
     ), 201

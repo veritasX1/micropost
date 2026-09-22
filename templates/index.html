@@ -10,6 +10,16 @@
 <body>
   <header>
     <h1>micro</h1>
+    {% if floppy %}
+    <div class="floppy-gauge" title="Backup medium usage">
+      <span class="floppy-gauge-label">Floppy:</span>
+      <span class="floppy-bar">
+        <span class="floppy-bar-fill" style="width: {{ floppy.percent }}%;"></span>
+        <span class="floppy-bar-pct">{{ floppy.percent }}%</span>
+      </span>
+      <span class="floppy-gauge-usage">{{ floppy.used_display }} / {{ floppy.total_display }}</span>
+    </div>
+    {% endif %}
     <a class="feed-link" href="{{ url_for('feed') }}">RSS</a>
   </header>
 
