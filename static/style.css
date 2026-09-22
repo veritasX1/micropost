@@ -195,6 +195,13 @@ header h1 a {
   hyphens: auto;
 }
 
+/* *word* -> red, a second color like the black/red ribbon on a
+   typewriter. Muted brick red rather than pure red so it doesn't glare on
+   OLED screens. */
+.post .post-text .emph {
+  color: #a1382e;
+}
+
 .post img {
   max-width: 100%;
   height: auto;

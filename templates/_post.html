@@ -9,7 +9,7 @@
           {% if post.floppy_saved %}<br><span class="floppy-note">auf Diskette gesichert</span>{% endif %}
         </p>
         {% if post.text %}
-          <p class="post-text">{{ post.text }}</p>
+          <p class="post-text">{{ post.text_html }}</p>
         {% endif %}
         {% if post.media|length == 1 and post.media[0].kind == 'video' %}
           {% set v = post.media[0] %}
